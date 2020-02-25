@@ -4,3 +4,6 @@
 # Composer stuff
 composer.lock
 vendor/
+
+# Tests
+tests/Providers/.cached_responses/

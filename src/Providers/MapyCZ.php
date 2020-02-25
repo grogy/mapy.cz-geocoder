@@ -1,107 +1,127 @@
 <?php declare(strict_types=1);
 namespace DATOSCZ\MapyCzGeocoder\Providers;
 
-use DATOSCZ\MapyCzGeocoder\Exceptions\GeocodingException;
-use DATOSCZ\MapyCzGeocoder\Exceptions\InvalidResultException;
-use DATOSCZ\MapyCzGeocoder\Exceptions\MultipleResultsException;
-use DATOSCZ\MapyCzGeocoder\Exceptions\NoResultException;
-use DATOSCZ\MapyCzGeocoder\Exceptions\QueryException;
-use DATOSCZ\MapyCzGeocoder\Exceptions\ReverseGeocodingException;
-use DATOSCZ\MapyCzGeocoder\IGeocoder;
-use DATOSCZ\MapyCzGeocoder\Utils\Coordinates;
-use DATOSCZ\MapyCzGeocoder\Utils\HTTPXMLQuery;
-use DATOSCZ\MapyCzGeocoder\Utils\Place;
-use SimpleXMLElement;
+use Geocoder\Collection;
+use Geocoder\Exception\UnsupportedOperation;
+use Geocoder\Http\Provider\AbstractHttpProvider;
+use Geocoder\Model\AddressBuilder;
+use Geocoder\Model\AddressCollection;
+use Geocoder\Provider\Provider;
+use Geocoder\Query\GeocodeQuery;
+use Geocoder\Query\ReverseQuery;
 
-class MapyCZ implements IGeocoder
+final class MapyCZ extends AbstractHttpProvider implements Provider
 {
-	private const GEOCODE_URL = 'https://api.mapy.cz/geocode';
-	private const GEOCODE_REVERSE_URL = 'https://api.mapy.cz/rgeocode';
+	private const GEOCODE_URI = 'https://api.mapy.cz/geocode';
+	private const REVERSE_URI = 'https://api.mapy.cz/rgeocode';
 
-	/** @var array */
-	private $mapping;
+	private const RE_STREET = '(?:(?:\s?ulice\s*)?(?P<streetName>(?:[0-9]+(?=[^/,]+))?[^/,0-9]+(?<![\s\,])))';
+	private const RE_NUMBER = '(?:(?<!č\.p\.)(?:č\.p\.\s+)?(?P<streetNumber>[0-9]+(?:\/[0-9]+)?[a-z]?))';
 
-	public function __construct()
+	public function getName(): string
 	{
-		$this->mapping = [
-			'addr' => Place::ADDRESS,
-			'stre' => Place::STREET,
-			'quar' => Place::QURATER,
-			'ward' => Place::WARD,
-			'muni' => Place::MUNICIPALITY,
-			'dist' => Place::DISTRICT,
-			'regi' => Place::REGION,
-			'coun' => Place::COUNTRY
-		];
+		return 'mapy_cz';
 	}
 
-	/**
-	 * @inheritdoc
-	 */
-	public function geocode(string $value): Coordinates
+	public function geocodeQuery(GeocodeQuery $query): Collection
 	{
-		try {
-			$response = HTTPXMLQuery::performQuery(
-				static::GEOCODE_URL, [
-				'query' => $value,
-			]
-			);
-		} catch (QueryException|InvalidResultException $exception) {
-			throw new GeocodingException($exception->getMessage(), $exception->getCode(), $exception);
+		$address = $query->getText();
+		if (filter_var($address, FILTER_VALIDATE_IP)) {
+			throw new UnsupportedOperation('The MapyCZ does not support IP addresses');
 		}
 
-		/** @var SimpleXMLElement $point */
-		$point = $response->point;
-		if ($point->children()->count() > 1) {
-			throw new MultipleResultsException(sprintf('Found %d results expecting 1.', $point->children()->count()));
-		}
-		/** @var SimpleXMLElement $item */
+		$results = [];
+		$xml = $this->executeQuery(self::GEOCODE_URI, ['query' => $address]);
+
+		/** @var \SimpleXMLElement $point */
+		$point = $xml->point;
+		$itemCount = count($point->children());
+		/** @var \SimpleXMLElement $item */
 		foreach ($point->children() as $item) {
-			if (isset($item->attributes()->x) && isset($item->attributes()->y)) {
-				return new Coordinates((float) $item->attributes()->y, (float) $item->attributes()->x);
+			if (count($results) == $query->getLimit()) {
+				break;
+			}
+
+			/** @var \SimpleXMLElement $attrs */
+			$attrs = $item->attributes();
+			if ($itemCount > 1 && stripos((string)$attrs->title, $address) === false) {
+				continue;
+			}
+			if (!in_array((string)$attrs->source, ['addr', 'stre'], TRUE)) {
+				continue;
+			}
+			$builder = new AddressBuilder($this->getName());
+			$builder->setCoordinates((float)$attrs->y, (float)$attrs->x);
+			$results[] = $builder->build();
+		}
+
+		return new AddressCollection($results);
+	}
+
+	public function reverseQuery(ReverseQuery $query): Collection
+	{
+		$coordinates = $query->getCoordinates();
+		$xml = $this->executeQuery(self::REVERSE_URI, $query = ['lat' => $coordinates->getLatitude(), 'lon' => $coordinates->getLongitude()]);
+		$builder = new AddressBuilder($this->getName());
+		$builder->setCoordinates($coordinates->getLatitude(), $coordinates->getLongitude());
+		foreach ($xml->children() as $item) {
+			/** @var \SimpleXMLElement $attrs */
+			$attrs = $item->attributes();
+			$type = (string) $attrs->type;
+			switch ($type) {
+				case 'addr':
+					if (preg_match('~' . self::RE_NUMBER . '\\s*\\z~i', (string)$attrs->name, $m)) {
+						$builder->setStreetNumber($m['streetNumber']);
+					}
+
+					if (preg_match('~^' . self::RE_STREET . '?\\s*' . self::RE_NUMBER . '\\s*\\z~i', (string)$attrs->name, $m)) {
+						$builder->setStreetName($m['streetName']);
+					}
+					break;
+
+				case 'stre':
+					$builder->setStreetName(preg_replace('~^(ulice\s)~', '', (string)$attrs->name));
+					break;
+
+				case 'quar':
+					$builder->addAdminLevel(4, (string)$attrs->name);
+					break;
+
+				case 'ward':
+					$builder->addAdminLevel(3, preg_replace('~^(část obce\s)~', '', (string)$attrs->name));
+					break;
+
+				case 'muni':
+					$builder->setLocality((string)$attrs->name);
+					break;
+
+				case 'dist':
+					$builder->addAdminLevel(2, preg_replace('~^(okres\s)~', '', (string)$attrs->name));
+					break;
+
+				case 'regi':
+					$builder->addAdminLevel(1, (string)$attrs->name);
+					break;
+
+				case 'coun':
+					$builder->setCountry((string)$attrs->name);
+					break;
 			}
 		}
-		throw new NoResultException('No usable data for obtaining x and y of item');
+		return new AddressCollection([$builder->build()]);
 	}
 
-	/**
-	 * @inheritdoc
-	 */
-	public function reverse(float $latitude, float $longitude): Place
+	private function executeQuery(string $endpoint, array $query): \SimpleXMLElement
 	{
+		$url = $endpoint . '?' . http_build_query($query, '', '&');
+		$content = $this->getUrlContents($url);
+
 		try {
-			$response = HTTPXMLQuery::performQuery(
-				static::GEOCODE_REVERSE_URL, [
-					'lon' => $longitude,
-					'lat' => $latitude
-				]
-			);
-		} catch (QueryException|InvalidResultException $exception) {
-			throw new ReverseGeocodingException($exception->getMessage(), $exception->getCode(), $exception);
+			libxml_use_internal_errors(true);
+			return new \SimpleXMLElement($content);
+
+		} catch (\Exception $e) {
+			throw new InvalidServerResponse(sprintf('Invalid result %s', json_encode($query)), 0, $e);
 		}
-		/** @var SimpleXMLElement $rgeocode */
-		$rgeocode = $response;
-
-		if ($rgeocode->children()->count() === 0) {
-			throw new NoResultException('No items for this place.');
-		}
-
-		$label = (string) $rgeocode->attributes()->label;
-		$point = new Coordinates($latitude, $longitude);
-		$output = [];
-
-		/** @var SimpleXMLElement $item */
-		foreach ($rgeocode->children() as $item) {
-			$output[$this->mapping[(string) $item->attributes()->type]] = (string) $item->attributes()->name;
-		}
-		return new Place($point, $label, $output);
-	}
-
-	/**
-	 * @inheritdoc
-	 */
-	public function reverseCoordinates(Coordinates $coordinates): Place
-	{
-		return $this->reverse($coordinates->getLatitude(), $coordinates->getLongitude());
 	}
 }
