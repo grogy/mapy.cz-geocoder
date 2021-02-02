@@ -54,7 +54,7 @@ final class MapyCZ extends AbstractHttpProvider implements Provider
 	{
 		/** @var \SimpleXMLElement $attrs */
 		$attrs = $item->attributes();
-		if (!in_array((string)$attrs->source, ['addr', 'stre'], TRUE)) {
+		if (!in_array((string)$attrs->source, ['addr', 'stre', 'muni'], TRUE)) {
 			return null;
 		}
 		$builder = new AddressBuilder($this->getName());
