@@ -4,6 +4,7 @@ namespace DATOSCZ\MapyCzGeocoder\Providers;
 use Geocoder\Collection;
 use Geocoder\Exception\UnsupportedOperation;
 use Geocoder\Http\Provider\AbstractHttpProvider;
+use Geocoder\Model\Address;
 use Geocoder\Model\AddressBuilder;
 use Geocoder\Model\AddressCollection;
 use Geocoder\Provider\Provider;
@@ -36,26 +37,30 @@ final class MapyCZ extends AbstractHttpProvider implements Provider
 		/** @var \SimpleXMLElement $point */
 		$point = $xml->point;
 		$itemCount = count($point->children());
-		/** @var \SimpleXMLElement $item */
+		/** @var \SimpleXMLElement|array $item */
 		foreach ($point->children() as $item) {
 			if (count($results) == $query->getLimit()) {
 				break;
 			}
-
-			/** @var \SimpleXMLElement $attrs */
-			$attrs = $item->attributes();
-			if ($itemCount > 1 && stripos((string)$attrs->title, $address) === false) {
-				continue;
+			$buildedAddress = $this->buildAddress($item, $itemCount, $address);
+			if ($buildedAddress !== null) {
+				$results[] = $buildedAddress;
 			}
-			if (!in_array((string)$attrs->source, ['addr', 'stre'], TRUE)) {
-				continue;
-			}
-			$builder = new AddressBuilder($this->getName());
-			$builder->setCoordinates((float)$attrs->y, (float)$attrs->x);
-			$results[] = $builder->build();
 		}
 
 		return new AddressCollection($results);
+	}
+
+	private function buildAddress(\SimpleXMLElement $item, int $itemCount, string $address) : ?Address
+	{
+		/** @var \SimpleXMLElement $attrs */
+		$attrs = $item->attributes();
+		if (!in_array((string)$attrs->source, ['addr', 'stre'], TRUE)) {
+			return null;
+		}
+		$builder = new AddressBuilder($this->getName());
+		$builder->setCoordinates((float)$attrs->y, (float)$attrs->x);
+		return $builder->build();
 	}
 
 	public function reverseQuery(ReverseQuery $query): Collection
