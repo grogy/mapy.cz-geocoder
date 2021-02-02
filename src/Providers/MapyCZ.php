@@ -36,13 +36,12 @@ final class MapyCZ extends AbstractHttpProvider implements Provider
 
 		/** @var \SimpleXMLElement $point */
 		$point = $xml->point;
-		$itemCount = count($point->children());
 		/** @var \SimpleXMLElement|array $item */
 		foreach ($point->children() as $item) {
 			if (count($results) == $query->getLimit()) {
 				break;
 			}
-			$buildedAddress = $this->buildAddress($item, $itemCount, $address);
+			$buildedAddress = $this->buildAddress($item);
 			if ($buildedAddress !== null) {
 				$results[] = $buildedAddress;
 			}
@@ -51,7 +50,7 @@ final class MapyCZ extends AbstractHttpProvider implements Provider
 		return new AddressCollection($results);
 	}
 
-	private function buildAddress(\SimpleXMLElement $item, int $itemCount, string $address) : ?Address
+	private function buildAddress(\SimpleXMLElement $item) : ?Address
 	{
 		/** @var \SimpleXMLElement $attrs */
 		$attrs = $item->attributes();
