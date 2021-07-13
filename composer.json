@@ -1,5 +1,5 @@
 {
-    "name": "datoscz/mapy.cz-geocoder",
+    "name": "grogy/mapy.cz-geocoder",
     "description": "Unofficial PHP geocoder using mapy.cz public API",
     "type": "library",
     "license": "GPL-3.0",
