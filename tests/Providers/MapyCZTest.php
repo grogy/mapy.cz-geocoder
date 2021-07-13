@@ -51,13 +51,13 @@ class MapyCZTest extends TestCase
 		$output = $geocoder->reverse(50.131282, 14.418415);
 		$this->assertEquals($output->getCoordinates()->getLatitude(), 50.131282);
 		$this->assertEquals($output->getCoordinates()->getLongitude(), 14.418415);
-		$this->assertEquals($output->getLabel(), 'ulice Lodžská, Praha, okres Hlavní město Praha');
+		$this->assertEquals($output->getLabel(), 'Lodžská, Praha, Hlavní město Praha');
 
 		$geocoder = new MapyCZ();
 		$output = $geocoder->reverse(49.1974, 16.6082);
 		$this->assertEquals($output->getCoordinates()->getLatitude(), 49.1974);
 		$this->assertEquals($output->getCoordinates()->getLongitude(), 16.6082);
-		$this->assertEquals($output->getLabel(), 'Moravské náměstí 127/3, Brno, 602 00, okres Brno-město');
+		$this->assertEquals($output->getLabel(), 'Moravské náměstí 127/3, Brno, 602 00, Brno-město');
 	}
 
 	public function testReverseCoordinates()
@@ -66,6 +66,6 @@ class MapyCZTest extends TestCase
 		$output = $geocoder->reverseCoordinates(new Coordinates(49.1974, 16.6082));
 		$this->assertEquals($output->getCoordinates()->getLatitude(), 49.1974);
 		$this->assertEquals($output->getCoordinates()->getLongitude(), 16.6082);
-		$this->assertEquals($output->getLabel(), 'Moravské náměstí 127/3, Brno, 602 00, okres Brno-město');
+		$this->assertEquals($output->getLabel(), 'Moravské náměstí 127/3, Brno, 602 00, Brno-město');
 	}
 }
